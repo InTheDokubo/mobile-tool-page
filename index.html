@@ -23,32 +23,39 @@
     @media(max-width:640px){.arena{min-height:430px}.player{right:2%;width:42%;min-width:0}.player:first-child{top:76px}.player:last-child{top:168px}.who{font-size:12px}.stats{gap:2px;margin-left:2px}.stat{font-size:8px}.stat b{font-size:11px}.middle{left:1%;top:40px;width:55%;height:320px}.notice{top:45px;font-size:15px;padding:9px}.used-card{width:92px;min-height:60px;font-size:9px}.used-card b{font-size:13px}.used-player{min-width:95px;padding:4px;font-size:11px}.used-arrow{font-size:23px}.action button{padding:7px 14px;font-size:15px}.card{flex-basis:64px;min-height:88px}.card .name{font-size:9px}.card .value{font-size:13px}.log{bottom:29px;left:10px}}
   
     body{background:#53b79e;font-family:Arial,"Noto Sans JP",sans-serif}
-    .app{position:relative}
+    .app{position:relative;margin-top:8px;height:720px;min-height:720px}
+    .app>header{height:30px}
+    .arena{min-height:690px}
+    .player{display:flex;align-items:center;justify-content:space-between;min-height:39px;border-radius:20px 0 0 20px}
+    .who{white-space:nowrap}.stats{white-space:nowrap}.stat b{font-size:18px}
     #you .player{top:94px}#cpu .player{top:222px}
     #used{display:grid;grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);width:100%;gap:8px;top:0}
     .combat-column{min-width:0}.used-player{min-width:0;font-size:15px}
     .used-card{width:100%;margin-top:8px;animation:none!important;min-height:78px;cursor:pointer}
     .used-card b{display:block;font-size:20px}.used-arrow{text-align:center}
     .card.sel{animation:none!important;transform:none;border-color:#fff36e;box-shadow:inset 0 0 0 2px #fff36e}
-    .hand{padding-top:8px;overflow-y:visible;display:grid;grid-template-columns:repeat(9,minmax(0,1fr));width:70%;margin:0;gap:3px}
+    .hand{position:absolute;left:10px;top:478px;padding:8px 0 0;overflow-y:visible;display:grid;grid-template-columns:repeat(9,minmax(0,1fr));width:68%;margin:0;gap:3px}
     .card{min-width:0;min-height:92px;color:#284a43}.card .tag,.card .value{color:#284a43}
-    .middle{top:14px;height:360px}.notice{top:auto;bottom:48px;font-size:14px;background:transparent;color:#176e69;padding:4px}
-    .action{width:100%;justify-content:space-between;left:0}.action button{padding:7px 16px;font-size:18px}
+    .middle{top:14px;height:390px}.notice{top:auto;bottom:48px;font-size:14px;background:transparent;color:#176e69;padding:4px}
+    .action{width:100%;justify-content:space-between;left:0}.action button{padding:7px 16px;font-size:18px;min-width:42%}
+    .action button.warn{background:#aa4646}.action .attack-total{min-width:42%;padding:7px;text-align:center;border:3px solid #448d75;border-radius:9px;color:#176e69;background:#e3ffd0;font-size:20px}
+    .combat-column{max-height:285px;overflow:auto}
     .combat-result{background:#fff3bc;padding:8px;border-radius:6px;text-align:center;color:#714b16}
     .player[aria-pressed="true"]{outline:2px solid #ffe369;outline-offset:2px}
     .exchange-field{display:flex;align-items:center;gap:4px;color:#176e69}
     .exchange-field input{width:65px;padding:6px;background:#f0ffcf;border:1px solid #448d75;color:#184d40;font:inherit}
-    #preview{position:absolute;right:12px;top:540px;width:27%;color:#284a43}
+    #preview{position:absolute;right:12px;top:442px;width:27%;color:#284a43}
     .card.disabled{opacity:.45}.used-card.defence{animation:none;background:#ddffd0}
     @media(max-width:640px){
-      .app{padding:0 8px 12px}.arena{margin:0 -8px;min-height:340px}
+      .app{padding:0 8px 12px;height:auto;min-height:100dvh;margin-top:0}.arena{margin:0 -8px;min-height:340px}
+      .player{display:block}.combat-column{max-height:150px}
       .middle{width:96%;height:220px;top:12px}
       #used{grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr);gap:4px}
       .used-player{font-size:12px}.used-card{min-height:66px;font-size:12px}.used-card b{font-size:16px}
       #you .player{top:260px;left:2%;right:auto;width:47%}
       #cpu .player{top:260px;right:2%;width:47%}
       .player{padding:5px}.stats{display:flex;gap:7px}.who{font-size:12px}.stat{font-size:10px}.stat b{font-size:14px}
-      .hand{width:100%;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin-top:8px}
+      .hand{position:relative;left:auto;top:auto;width:100%;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin-top:8px}
       .card{min-height:79px}.card .name{font-size:11px}.card .value{font-size:15px}
       #preview{position:static;width:100%;margin-top:6px}.log{position:static;max-width:100%;max-height:55px}
     }
@@ -156,7 +163,8 @@
     if(busy){n.textContent=G.pending?.result||'効果を解決中';return}
     const q=G.pending;
     if(q){n.textContent=A[q.attr]+'属性 / 攻 '+q.attack;
-      if(q.defender===0){const sum=G.selected.reduce((v,i)=>v+G.players[0].hand[i].value,0);button(sum?'守 '+sum:'許す',()=>sum||G.selected.length?defend():finishAttack(0,[]));}
+      a.append(el('div','attack-total','攻 '+q.attack));
+      if(q.defender===0){const sum=G.selected.reduce((v,i)=>v+G.players[0].hand[i].value,0);button(sum?'守 '+sum:'許す',()=>sum||G.selected.length?defend():finishAttack(0,[]),G.selected.length?'primary':'warn');}
       else n.textContent+=' — 相手の防御待ち';return;
     }
     n.textContent=G.turn===0?'手札を選択 → 左上のカードで確定':'相手が選択中';
