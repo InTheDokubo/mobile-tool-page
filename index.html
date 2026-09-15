@@ -60,6 +60,13 @@
       #preview{position:static;width:100%;margin-top:6px}.log{position:static;max-width:100%;max-height:55px}
     }
 
+    .hit-number{position:absolute;right:12px;top:-34px;z-index:8;font-size:32px;font-weight:900;color:#b62336;text-shadow:0 2px white,2px 0 white,-2px 0 white;pointer-events:none;animation:damage-rise .65s ease-out both}
+    .hit-number.block{color:#177ea1}.hit-number.heal{color:#16843b}
+    .player.hit{animation:damage-shake .3s ease-out}.player.blocked{box-shadow:0 0 0 4px #abf3ff,0 0 24px #e3ffff}
+    @keyframes damage-rise{0%{opacity:0;transform:translateY(14px) scale(.8)}20%{opacity:1;transform:translateY(0) scale(1.12)}75%{opacity:1}100%{opacity:0;transform:translateY(-24px)}}
+    @keyframes damage-shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}
+    @media(prefers-reduced-motion:reduce){.player.hit{animation:none}.hit-number{animation:none}}
+    @media(max-width:640px){.hit-number{font-size:25px;top:-29px}}
 </style>
 </head>
 <body><main class="app">
@@ -108,9 +115,36 @@
 
   // Explicit selection -> confirmation -> defense -> resolution -> refill phases.
   let sequence=0, busy=false, previewCard=null;
+  let audioContext=null,muted=false;
+  const voices=new Set();
+  function stopSounds(){for(const voice of voices){try{voice.stop()}catch{}}voices.clear()}
+  function unlockAudio(){
+    try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;
+      audioContext ||= new Audio();if(audioContext.state==='suspended')audioContext.resume().catch(()=>{});
+    }catch{}
+  }
+  function sound(kind){
+    if(muted||!audioContext||audioContext.state!=='running')return;
+    const patterns={select:[[650,.04]],attack:[[260,.08],[170,.10]],guard:[[880,.07],[1200,.08]],hit:[[150,.08],[65,.16]],heal:[[440,.08],[660,.08],[880,.16]],win:[[523,.12],[659,.12],[784,.24]],lose:[[330,.12],[220,.12],[110,.3]]};
+    let time=audioContext.currentTime;
+    for(const [frequency,duration] of patterns[kind]||patterns.select){
+      const oscillator=audioContext.createOscillator(),gain=audioContext.createGain();
+      oscillator.type=kind==='hit'?'triangle':'sine';oscillator.frequency.setValueAtTime(frequency,time);
+      gain.gain.setValueAtTime(0,time);gain.gain.linearRampToValueAtTime(.12,time+.008);gain.gain.exponentialRampToValueAtTime(.001,time+duration);
+      oscillator.connect(gain);gain.connect(audioContext.destination);voices.add(oscillator);
+      oscillator.onended=()=>{voices.delete(oscillator);oscillator.disconnect();gain.disconnect()};
+      oscillator.start(time);oscillator.stop(time+duration+.02);time+=duration;
+    }
+  }
+  function impact(player,amount,kind='hit'){
+    const panel=$(player===0?'#you':'#cpu').children[0];if(!panel)return;
+    panel.classList.add(amount===0?'blocked':'hit');
+    panel.append(el('span','hit-number '+(amount===0?'block':kind==='heal'?'heal':''),amount===0?'防御':kind==='heal'?'+'+amount:'−'+amount));
+    sound(amount===0?'guard':kind);
+  }
   const schedule=(fn,ms)=>{const token=sequence;setTimeout(()=>{if(token===sequence)fn()},ms)};
   function init(){
-    sequence++;busy=false;previewCard=null;G.exchange=null;
+    sequence++;stopSounds();busy=false;previewCard=null;G.exchange=null;
     G.players=[newPlayer('あなた',false),newPlayer('機械の預言者',true)];
     G.turn=Math.random()<.5?0:1;G.selected=[];G.target=1;G.pending=null;G.turnNo=1;G.ended=false;G.logs=[];
     log('戦いが始まった');render();if(G.turn===1)schedule(cpuTurn,700);
@@ -122,6 +156,7 @@
   }
   function choose(i){
     const p=G.players[0],c=p.hand[i];if(!c)return;previewCard=c;if(!canUse(c,p)){renderUsed();return}
+    sound('select');
     if(G.selected.includes(i))G.selected=G.selected.filter(j=>j!==i);
     else if(G.pending)G.selected.push(i);
     else if(c.type==='item'||c.type==='miracle')G.selected=[i];
@@ -173,6 +208,7 @@
     else if(!G.players[0].hand.some(c=>['weapon','all','plus'].includes(c.type)))button('祈る',()=>{draw(G.players[0]);endTurn()});
   }
   function attack(actor,target,chosen,miracle){
+    sound('attack');
     const main=chosen.find(c=>['weapon','all','miracle'].includes(c.type))||chosen[0];
     const attr=combinedAttribute(chosen);
     G.pending={actor,defender:target??1-actor,attack:chosen.reduce((s,c)=>s+c.value,0),attr,chosen,miracle,guards:null};
@@ -186,10 +222,13 @@
       const d=G.players[defender],a=G.players[q.actor],guards=q.guards;
       let attr=guards.some(c=>c.effect==='rainbow')?'none':q.attr;
       let dmg=Math.max(0,q.attack-guards.reduce((s,c)=>s+c.value,0));
-      if(guards.some(c=>c.effect==='reflect')&&attr==='none'&&!q.miracle){a.hp-=q.attack;dmg=0}
+      const reflected=guards.some(c=>c.effect==='reflect')&&attr==='none'&&!q.miracle;
+      if(reflected){a.hp-=q.attack;dmg=0}
       if(attr==='dark'&&dmg>0)dmg=d.hp;
       d.hp-=dmg;if(q.chosen.some(c=>c.effect==='drain'))a.hp+=dmg;
       q.result=dmg+'ダメージ';log(d.name+'：'+q.result);checkDead();render();
+      impact(defender,dmg);if(reflected)impact(q.actor,q.attack);
+      if(G.ended)schedule(()=>sound(G.players[0].alive?'win':'lose'),200);
       schedule(()=>{
         const spend=(p,list)=>{for(const c of list){const i=p.hand.indexOf(c);if(i>=0)p.hand.splice(i,1)}draw(p,list.length)};
         spend(a,q.chosen.filter(c=>c.type!=='miracle'));spend(d,guards);
@@ -246,7 +285,7 @@
     if(c.effect==='heal')p.hp+=10;
     else if(c.effect==='mana')p.mp+=10;
     else if(c.effect==='cure')p.statuses=[];
-    log(p.name+'：'+c.name);endTurn();
+    log(p.name+'：'+c.name);endTurn();if(c.effect==='heal'||c.effect==='mana')impact(actor,10,'heal');
   }
   function confirmExchange(){
     const q=G.exchange;if(!q)return false;const d=q.draft;
@@ -256,6 +295,9 @@
     const p=G.players[q.actor],i=p.hand.indexOf(q.card);if(i<0)return false;
     Object.assign(p,d);p.hand.splice(i,1);draw(p);G.exchange=null;log(p.name+'は両替した');endTurn();return true;
   }
-  $('#start').onclick=()=>{$('#intro').classList.add('hidden');init()};$('#restart').onclick=()=>init();
+  const soundButton=el('button','topbtn','SE：ON');soundButton.setAttribute('aria-label','効果音をミュート');soundButton.setAttribute('aria-pressed','false');
+  soundButton.onclick=()=>{muted=!muted;if(muted)stopSounds();else unlockAudio();soundButton.textContent=muted?'SE：OFF':'SE：ON';soundButton.setAttribute('aria-pressed',String(muted));soundButton.setAttribute('aria-label',muted?'効果音を有効にする':'効果音をミュート')};
+  $('.app>header').append(soundButton);
+  $('#start').onclick=()=>{unlockAudio();$('#intro').classList.add('hidden');init()};$('#restart').onclick=()=>{unlockAudio();init()};
 })();
 </script></body></html>
