@@ -35,6 +35,9 @@
     .middle{top:14px;height:360px}.notice{top:auto;bottom:48px;font-size:14px;background:transparent;color:#176e69;padding:4px}
     .action{width:100%;justify-content:space-between;left:0}.action button{padding:7px 16px;font-size:18px}
     .combat-result{background:#fff3bc;padding:8px;border-radius:6px;text-align:center;color:#714b16}
+    .player[aria-pressed="true"]{outline:2px solid #ffe369;outline-offset:2px}
+    .exchange-field{display:flex;align-items:center;gap:4px;color:#176e69}
+    .exchange-field input{width:65px;padding:6px;background:#f0ffcf;border:1px solid #448d75;color:#184d40;font:inherit}
     #preview{position:absolute;right:12px;top:540px;width:27%;color:#284a43}
     .card.disabled{opacity:.45}.used-card.defence{animation:none;background:#ddffd0}
     @media(max-width:640px){
@@ -73,7 +76,7 @@
   const $=s=>document.querySelector(s); const el=(tag,cls,html)=>{const x=document.createElement(tag);x.className=cls||'';x.innerHTML=html||'';return x};
   const sample=()=>{let n=Math.random()*cards.reduce((s,c)=>s+c.weight,0);return cards.find(c=>(n-=c.weight)<=0)||cards[0]};
   const draw=(p,n=1)=>{for(let i=0;i<n;i++){if(p.hand.length>=18){p.hand.splice(Math.floor(Math.random()*p.hand.length),1);log(`${p.name}の手札があふれた`)} p.hand.push(structuredClone(sample()))}};
-  const newPlayer=(name,cpu)=>{const p={name,cpu,hp:40,mp:10,gold:10,hand:[],miracles:[],statuses:[],alive:true};draw(p,9);return p};
+  const newPlayer=(name,cpu)=>{const p={name,cpu,hp:40,mp:10,gold:20,hand:[],miracles:[],statuses:[],alive:true};draw(p,9);return p};
   const log=t=>{G.logs.unshift(t);G.logs=G.logs.slice(0,28)};
   function init(){G.players=[newPlayer('あなた',false),newPlayer('機械の預言者',true)];G.turn=Math.random()<.5?0:1;G.selected=[];G.target=1;G.pending=null;G.turnNo=0;G.ended=false;G.logs=[];log('戦いが始まった');render();if(G.players[G.turn].cpu)setTimeout(cpuTurn,600)}
   const statusText=p=>p.statuses.map(s=>({dream:'夢',fog:'霧',sick:'病'}[s]||s)).join(' / ')||'状態異常なし';
@@ -100,22 +103,23 @@
   let sequence=0, busy=false, previewCard=null;
   const schedule=(fn,ms)=>{const token=sequence;setTimeout(()=>{if(token===sequence)fn()},ms)};
   function init(){
-    sequence++;busy=false;previewCard=null;
+    sequence++;busy=false;previewCard=null;G.exchange=null;
     G.players=[newPlayer('あなた',false),newPlayer('機械の預言者',true)];
     G.turn=Math.random()<.5?0:1;G.selected=[];G.target=1;G.pending=null;G.turnNo=1;G.ended=false;G.logs=[];
     log('戦いが始まった');render();if(G.turn===1)schedule(cpuTurn,700);
   }
   function canUse(c,p){
-    if(busy||G.ended)return false;
+    if(busy||G.ended||G.exchange)return false;
     if(G.pending)return G.pending.defender===0&&c.type==='armor'&&(validArmor(c,G.pending.attr)||G.selected.some(i=>p.hand[i]?.effect==='rainbow'));
     return G.turn===0&&c.type!=='armor'&&(c.type!=='miracle'||p.mp>=c.mp);
   }
   function choose(i){
-    const p=G.players[0],c=p.hand[i];previewCard=c;if(!canUse(c,p))return;
+    const p=G.players[0],c=p.hand[i];if(!c)return;previewCard=c;if(!canUse(c,p)){renderUsed();return}
     if(G.selected.includes(i))G.selected=G.selected.filter(j=>j!==i);
     else if(G.pending)G.selected.push(i);
     else if(c.type==='item'||c.type==='miracle')G.selected=[i];
     else {G.selected=G.selected.filter(j=>['weapon','all','plus'].includes(p.hand[j].type)&&(c.type==='plus'||p.hand[j].type==='plus'));G.selected.push(i)}
+    if(G.pending&&!G.selected.some(j=>p.hand[j]?.effect==='rainbow'))G.selected=G.selected.filter(j=>validArmor(p.hand[j],G.pending.attr));
     render();
   }
   function renderUsed(){
@@ -138,6 +142,17 @@
     const a=$('#actions'),n=$('#notice');a.innerHTML='';
     const button=(label,fn,cls='primary')=>{const b=el('button',cls,label);b.onclick=fn;b.disabled=busy;a.append(b)};
     if(G.ended){n.textContent=G.players[0].alive?'勝利':'昇天';return}
+    if(G.exchange){
+      n.textContent='両替：HP1 = MP1 = ¥1';
+      const draft=G.exchange.draft;
+      for(const key of ['hp','mp','gold']){
+        const label=el('label','exchange-field',key==='gold'?'¥':key.toUpperCase());
+        const input=el('input');input.type='number';input.min=key==='hp'?'1':'0';input.step='1';input.value=draft[key];
+        input.setAttribute('aria-label','両替後の'+(key==='gold'?'所持金':key.toUpperCase()));
+        input.oninput=()=>{draft[key]=Number(input.value)};label.append(input);a.append(label);
+      }
+      button('両替を確定',()=>confirmExchange());button('戻る',()=>{G.exchange=null;render()});return;
+    }
     if(busy){n.textContent=G.pending?.result||'効果を解決中';return}
     const q=G.pending;
     if(q){n.textContent=A[q.attr]+'属性 / 攻 '+q.attack;
@@ -151,8 +166,7 @@
   }
   function attack(actor,target,chosen,miracle){
     const main=chosen.find(c=>['weapon','all','miracle'].includes(c.type))||chosen[0];
-    let attr=main.attr;const dye=chosen.find(c=>c.effect==='dye');
-    if(dye)attr=dye.attr;else {const attrs=new Set(chosen.filter(c=>c.attr!=='light').map(c=>c.attr));if(attrs.size>1)attr='none';else if(attrs.size)attr=[...attrs][0]}
+    const attr=combinedAttribute(chosen);
     G.pending={actor,defender:target??1-actor,attack:chosen.reduce((s,c)=>s+c.value,0),attr,chosen,miracle,guards:null};
     G.selected=[];previewCard=main;log(G.players[actor].name+'：'+chosen.map(c=>c.name).join(' + '));render();
     if(G.pending.defender===1)schedule(cpuDefend,1000);
@@ -180,6 +194,60 @@
     G.turn=1-G.turn;G.turnNo++;G.selected=[];render();if(G.turn===1)schedule(cpuTurn,700);
   }
 
+  // Light substitutes only for the four elements, not for dark or neutral.
+  function combinedAttribute(chosen){
+    const attrs=new Set(chosen.map(c=>c.attr));
+    if(attrs.size===1)return chosen[0].attr;
+    if(attrs.has('light')&&[...attrs].every(a=>['light','fire','water','wood','earth'].includes(a)))attrs.delete('light');
+    return attrs.size===1?[...attrs][0]:'none';
+  }
+  function defend(){
+    if(!G.pending||G.pending.defender!==0||busy)return;
+    const p=G.players[0],rainbow=G.selected.some(i=>p.hand[i]?.effect==='rainbow');
+    finishAttack(0,G.selected.filter(i=>p.hand[i]?.type==='armor'&&(rainbow||validArmor(p.hand[i],G.pending.attr))));
+  }
+  function selectTarget(i){
+    if(G.turn!==0||G.pending||G.exchange||busy||G.ended||!G.players[i].alive)return;
+    G.target=i;render();
+  }
+  function playerPanel(p,i){
+    const div=el('button',`player ${G.turn===i&&!G.pending?'active':''} ${!p.alive?'dead':''}`,`<div class="who"><span>${p.name}</span></div><div class="stats"><div class="stat hp">HP<b>${p.hp}</b></div><div class="stat mp">MP<b>${p.mp}</b></div><div class="stat gold">¥<b>${p.gold}</b></div></div><div class="status">${statusText(p)}</div>`);
+    div.setAttribute('aria-label',p.name+'を対象に選択');div.setAttribute('aria-pressed',String(G.target===i));div.onclick=()=>selectTarget(i);return div;
+  }
+  function render(){
+    const me=G.players[0],enemy=G.players[1];
+    $('#you').replaceChildren(playerPanel(me,0));$('#cpu').replaceChildren(playerPanel(enemy,1));
+    $('#handcount').textContent=`${me.hand.length} / 18`;$('#log').innerHTML=G.logs.map(x=>`<p>› ${x}</p>`).join('');
+    const hand=$('#hand');hand.innerHTML='';
+    me.hand.forEach((c,i)=>{
+      const usable=canUse(c,me),b=el('button',`card ${c.attr} ${G.selected.includes(i)?'sel':''} ${!usable?'disabled':''}`,`<div class="tag">${tag(c)}</div><div class="name">${c.name}</div><div class="value">${valueText(c)}</div>`);
+      b.setAttribute('aria-pressed',String(G.selected.includes(i)));b.onclick=()=>choose(i);hand.append(b);
+    });
+    viewCenter();renderUsed();
+  }
+  function useItem(actor,c,idx){
+    const p=G.players[actor];
+    if(c.effect==='exchange'){
+      G.exchange={actor,card:c,draft:{hp:p.hp,mp:p.mp,gold:p.gold},total:p.hp+p.mp+p.gold};
+      if(actor===1){const n=Math.min(p.gold,Math.max(0,40-p.hp));G.exchange.draft.hp+=n;G.exchange.draft.gold-=n;confirmExchange()}
+      else render();return;
+    }
+    // Sale requires a separate offer/recipient flow; never steal an opponent's card.
+    if(c.effect==='sell'){log('売却の取引フローは未実装です。このカードは消費しません。');render();return}
+    p.hand.splice(idx,1);draw(p);
+    if(c.effect==='heal')p.hp+=10;
+    else if(c.effect==='mana')p.mp+=10;
+    else if(c.effect==='cure')p.statuses=[];
+    log(p.name+'：'+c.name);endTurn();
+  }
+  function confirmExchange(){
+    const q=G.exchange;if(!q)return false;const d=q.draft;
+    if(![d.hp,d.mp,d.gold].every(Number.isSafeInteger)||d.hp<1||d.mp<0||d.gold<0||d.hp+d.mp+d.gold!==q.total){
+      $('#notice').textContent='HP・MP・所持金の合計を '+q.total+' にしてください（HPは1以上）';return false;
+    }
+    const p=G.players[q.actor],i=p.hand.indexOf(q.card);if(i<0)return false;
+    Object.assign(p,d);p.hand.splice(i,1);draw(p);G.exchange=null;log(p.name+'は両替した');endTurn();return true;
+  }
   $('#start').onclick=()=>{$('#intro').classList.add('hidden');init()};$('#restart').onclick=()=>init();
 })();
 </script></body></html>
