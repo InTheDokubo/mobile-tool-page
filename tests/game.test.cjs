@@ -12,6 +12,9 @@ function setup(){
   return {a,timers,nodes,card:id=>structuredClone(a.cards.find(c=>c.id===id))};
 }
 const tests={
+  'damage effect matches resolved amount'(){const {a,card,timers,nodes}=setup();a.attack(1,0,[card('hammer')],false);a.defend();timers.shift()();const panel=nodes.get('#you').children[0];assert.equal(panel.children.at(-1).innerHTML,'−6')},
+  'block effect displays no damage'(){const {a,card,timers,nodes}=setup();a.G.players[0].hand=[card('wall')];a.attack(1,0,[card('hammer')],false);a.choose(0);a.defend();timers.shift()();assert.equal(nodes.get('#you').children[0].children.at(-1).innerHTML,'防御')},
+  'mute button toggles'(){const {nodes}=setup();const button=nodes.get('.app>header').children[0];button.onclick();assert.equal(button.textContent,'SE：OFF');button.onclick();assert.equal(button.textContent,'SE：ON')},
   'initial values'(){const {a}=setup();assert.equal(a.G.players[0].gold,20);assert.equal(a.G.players[0].hand.length,9)},
   'attribute composition'(){const {a}=setup();const mix=(...attrs)=>a.combinedAttribute(attrs.map(attr=>({attr})));assert.equal(mix('light','fire'),'fire');assert.equal(mix('light','dark'),'none');assert.equal(mix('fire','water'),'none');assert.equal(mix('light','light'),'light');assert.equal(mix('none','fire'),'none')},
   'inspect unusable card without selecting'(){const {a,card,nodes}=setup();a.G.players[0].hand=[card('plate')];a.choose(0);assert.equal(a.G.selected.length,0);assert.match(nodes.get('#preview').innerHTML,/鋼の鎧/)},
